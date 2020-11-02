@@ -506,10 +506,7 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 	return tree.Hash(), version, nil
 }
 
-// DeleteVersion deletes a tree version from disk. The version can then no
-// longer be accessed.
-func (tree *MutableTree) DeleteVersion(version int64) error {
-	debug("DELETE VERSION: %d\n", version)
+func (tree *MutableTree) deleteVersion(version int64) error {
 	if version == 0 {
 		return errors.New("version must be greater than 0")
 	}
@@ -520,18 +517,50 @@ func (tree *MutableTree) DeleteVersion(version int64) error {
 		return errors.Wrap(ErrVersionDoesNotExist, "")
 	}
 
-	err := tree.ndb.DeleteVersion(version, true)
-	if err != nil {
+	if err := tree.ndb.DeleteVersion(version, true); err != nil {
 		return err
 	}
 
-	err = tree.ndb.Commit()
-	if err != nil {
+	return nil
+}
+
+// DeleteVersions deletes a series of versions from the MutableTree. An error
+// is returned if any single version is invalid or the delete fails. All writes
+// happen in a single batch with a single commit.
+func (tree *MutableTree) DeleteVersions(versions ...int64) error {
+	debug("DELETING VERSIONS: %v\n", versions)
+
+	for _, version := range versions {
+		if err := tree.deleteVersion(version); err != nil {
+			return err
+		}
+	}
+
+	if err := tree.ndb.Commit(); err != nil {
+		return err
+	}
+
+	for _, version := range versions {
+		delete(tree.versions, version)
+	}
+
+	return nil
+}
+
+// DeleteVersion deletes a tree version from disk. The version can then no
+// longer be accessed.
+func (tree *MutableTree) DeleteVersion(version int64) error {
+	debug("DELETE VERSION: %d\n", version)
+
+	if err := tree.deleteVersion(version); err != nil {
+		return err
+	}
+
+	if err := tree.ndb.Commit(); err != nil {
 		return err
 	}
 
 	delete(tree.versions, version)
-
 	return nil
 }
 
